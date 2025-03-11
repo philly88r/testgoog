@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Pay Test with Direct Stripe Processing</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script async src="https://pay.google.com/gp/p/js/pay.js" onload="onGooglePayLoaded()"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 500px;
+        }
+        .price-container {
+            font-size: 20px;
+            margin: 10px 0;
+        }
+        #gpay-container {
+            margin-top: 20px;
+        }
+        .settings-container {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            text-align: left;
+        }
+        .settings-container label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .settings-container input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            display: none;
+            margin-top: 20px;
+        }
+        .stripe-result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            text-align: left;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Google Pay Test with Direct Stripe Processing</h2>
+        
+        <div class="settings-container">
+            <label for="stripe-key">Stripe Test Secret Key:</label>
+            <input type="text" id="stripe-key" placeholder="sk_test_..." value="">
+            <small>Enter your client's Stripe test secret key to create a real test charge.</small>
+            
+            <div style="margin-top: 10px;">
+                <label>
+                    <input type="radio" name="environment" value="TEST" checked> TEST Mode
+                </label>
+                <label style="margin-left: 15px;">
+                    <input type="radio" name="environment" value="PRODUCTION"> PRODUCTION Mode
+                </label>
+            </div>
+        </div>
+        
+        <div class="price-container">
+            Payment Amount: <span>$<span id="total_price">1.00</span></span>
+        </div>
+
+        <h2>Pay with Google Pay</h2>
+        <div id="gpay-container"></div>
+        
+        <div id="loading" class="loading">
+            Processing payment with Stripe... Please wait.
+        </div>
+        
+        <div id="message" class="message"></div>
+        
+        <div id="stripe-result" class="stripe-result">
+            <h3>Stripe Payment Result:</h3>
+            <pre id="stripe-result-json"></pre>
+        </div>
+    </div>
+
+    <script>
+        const GPAY_BUTTON_CONTAINER_ID = 'gpay-container';
+        
+        // Environment configuration
+        let currentEnvironment = 'TEST';
+        const environmentRadios = document.querySelectorAll('input[name="environment"]');
+        environmentRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                currentEnvironment = this.value;
+                // Remove existing button
+                const container = document.getElementById(GPAY_BUTTON_CONTAINER_ID);
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
+                // Reinitialize with new environment
+                onGooglePayLoaded();
+            });
+        });
+
+        // Configuration for TEST environment
+        const testConfig = {
+            environment: 'TEST',
+            merchantInfo: {
+                merchantName: 'pwndu.ai'
+            },
+            publishableKey: 'pk_test_TYooMQauvdEDq54NiTphI7jx'
+        };
+        
+        // Configuration for PRODUCTION environment
+        const productionConfig = {
+            environment: 'PRODUCTION',
+            merchantInfo: {
+                merchantId: 'BCR2DN4T77AI7IZ7',
+                merchantName: 'pwndu.ai'
+            },
+            publishableKey: 'pk_live_51QvqNUGWV02yv11osCwuRWoFsn4dJ2kohOemtSOHXdQ5WkSGyWmcr5gRdjalxdm0tT33Xk4kwB6YCEbcQdMQTiy900uGPUBybL'
+        };
+        
+        // Get current configuration based on environment
+        function getCurrentConfig() {
+            return currentEnvironment === 'TEST' ? testConfig : productionConfig;
+        }
+
+        function getBaseGooglePayRequest() {
+            const config = getCurrentConfig();
+            return {
+                apiVersion: 2,
+                apiVersionMinor: 0,
+                allowedPaymentMethods: [{
+                    type: 'CARD',
+                    parameters: {
+                        allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
+                        allowedCardNetworks: ['AMEX', 'DISCOVER', 'INTERAC', 'JCB', 'MASTERCARD', 'VISA'],
+                    },
+                    tokenizationSpecification: {
+                        type: 'PAYMENT_GATEWAY',
+                        parameters: {
+                            gateway: 'stripe',
+                            'stripe:version': '2020-08-27',
+                            'stripe:publishableKey': config.publishableKey,
+                        },
+                    },
+                }],
+                merchantInfo: config.merchantInfo,
+            };
+        }
+
+        let paymentsClient = null;
+
+        function getGooglePaymentsClient() {
+            const config = getCurrentConfig();
+            if (paymentsClient === null) {
+                paymentsClient = new google.payments.api.PaymentsClient({
+                    environment: config.environment
+                });
+            }
+            return paymentsClient;
+        }
+
+        function renderGooglePayButton() {
+            const button = getGooglePaymentsClient().createButton({
+                onClick: onGooglePaymentButtonClicked,
+                allowedPaymentMethods: getBaseGooglePayRequest().allowedPaymentMethods
+            });
+            document.getElementById(GPAY_BUTTON_CONTAINER_ID).appendChild(button);
+        }
+
+        function onGooglePayLoaded() {
+            // Reset payment client to ensure it uses the current environment
+            paymentsClient = null;
+            
+            const req = getBaseGooglePayRequest();
+            getGooglePaymentsClient()
+                .isReadyToPay(req)
+                .then(response => {
+                    if (response.result) {
+                        renderGooglePayButton();
+                    } else {
+                        console.log('Google Pay is not available.');
+                        showMessage('Google Pay is not available on this device or browser.', 'error');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    showMessage('Error checking Google Pay availability: ' + err, 'error');
+                });
+        }
+
+        function showMessage(text, type) {
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = text;
+            messageElement.className = 'message ' + type;
+            messageElement.style.display = 'block';
+        }
+
+        function onGooglePaymentButtonClicked() {
+            // Hide any previous messages
+            document.getElementById('message').style.display = 'none';
+            document.getElementById('stripe-result').style.display = 'none';
+            
+            const req = {
+                ...getBaseGooglePayRequest(),
+                transactionInfo: {
+                    countryCode: 'US',
+                    currencyCode: 'USD',
+                    totalPriceStatus: 'FINAL',
+                    totalPrice: document.getElementById("total_price").textContent
+                },
+            };
+
+            getGooglePaymentsClient()
+                .loadPaymentData(req)
+                .then(paymentData => {
+                    console.log('Payment Data:', paymentData);
+                    
+                    // Process with Stripe directly
+                    processPaymentWithStripe(paymentData);
+                })
+                .catch(err => {
+                    console.error(err);
+                    if (err.statusCode === "CANCELED") {
+                        showMessage('Payment canceled.', 'error');
+                    } else {
+                        showMessage('Error processing payment: ' + (err.statusMessage || err.message || JSON.stringify(err)), 'error');
+                    }
+                });
+        }
+        
+        function processPaymentWithStripe(paymentData) {
+            const stripeSecretKey = document.getElementById('stripe-key').value;
+            
+            if (!stripeSecretKey) {
+                showMessage('Please enter a Stripe test secret key to process the payment.', 'error');
+                return;
+            }
+            
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            
+            // Get the payment token from Google Pay
+            const paymentToken = paymentData.paymentMethodData.tokenizationData.token;
+            const amount = parseFloat(document.getElementById('total_price').textContent) * 100; // Convert to cents
+            
+            // Create a payment intent with Stripe
+            fetch('https://api.stripe.com/v1/payment_intents', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + stripeSecretKey,
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: new URLSearchParams({
+                    'amount': amount,
+                    'currency': 'usd',
+                    'payment_method_data[type]': 'card',
+                    'payment_method_data[card][token]': paymentToken,
+                    'confirm': 'true',
+                    'description': 'Google Pay Test Payment',
+                    'metadata[job_id]': 'DEMO123'
+                })
+            })
+            .then(response => response.json())
+            .then(result => {
+                // Hide loading indicator
+                document.getElementById('loading').style.display = 'none';
+                
+                // Display the result
+                document.getElementById('stripe-result').style.display = 'block';
+                document.getElementById('stripe-result-json').textContent = JSON.stringify(result, null, 2);
+                
+                if (result.status === 'succeeded') {
+                    showMessage('Payment successful! The charge has been created in your Stripe account.', 'success');
+                } else if (result.error) {
+                    showMessage('Error: ' + result.error.message, 'error');
+                } else {
+                    showMessage('Payment requires additional action or is processing.', 'success');
+                }
+            })
+            .catch(error => {
+                // Hide loading indicator
+                document.getElementById('loading').style.display = 'none';
+                
+                console.error('Error:', error);
+                showMessage('Error processing payment with Stripe: ' + error.message, 'error');
+            });
+        }
+    </script>  
+</body>
+</html>
