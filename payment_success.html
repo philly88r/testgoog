@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+        }
+        h1 {
+            color: #155724;
+        }
+        .success-icon {
+            color: #28a745;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .transaction-id {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin-top: 20px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">✓</div>
+        <h1>Payment Successful!</h1>
+        <p>Your Google Pay payment has been processed successfully.</p>
+        
+        <div>
+            <strong>Transaction ID:</strong>
+            <div class="transaction-id" id="transaction-id">Loading...</div>
+        </div>
+        
+        <a href="index.html" class="button">Return to Payment Page</a>
+    </div>
+    
+    <script>
+        // Get the payment intent ID from the URL
+        function getPaymentIntentId() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('id');
+        }
+        
+        // Display the payment intent ID
+        document.addEventListener('DOMContentLoaded', function() {
+            const paymentIntentId = getPaymentIntentId();
+            if (paymentIntentId) {
+                document.getElementById('transaction-id').textContent = paymentIntentId;
+            } else {
+                document.getElementById('transaction-id').textContent = 'No transaction ID found';
+            }
+        });
+    </script>
+</body>
+</html>

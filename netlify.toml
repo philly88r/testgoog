@@ -1,0 +1,16 @@
+[build]
+  functions = "functions"
+  publish = "."
+
+[dev]
+  functions = "functions"
+  publish = "."
+  
+[build.environment]
+  # The secret key will be set in Netlify's dashboard
+  # STRIPE_SECRET_KEY = "sk_test_your_test_key"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

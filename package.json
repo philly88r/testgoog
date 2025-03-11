@@ -1,0 +1,15 @@
+{
+  "name": "google-pay-stripe-netlify",
+  "version": "1.0.0",
+  "description": "Google Pay with Stripe integration for Netlify",
+  "main": "index.html",
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "stripe": "^8.222.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^12.0.0"
+  }
+}
