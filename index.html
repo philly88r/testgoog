@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Pay Integration - Production</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .payment-info {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .amount {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4285f4;
+        }
+        #google-pay-button {
+            margin-top: 20px;
+        }
+        #google-pay-button button {
+            background-color: #000;
+            border-radius: 4px;
+            padding: 12px 24px;
+            cursor: pointer;
+            border: none;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        #loading {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+            color: #4285f4;
+        }
+        #debug-panel {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+        #debug-log {
+            height: 200px;
+            overflow-y: auto;
+            background-color: #fff;
+            padding: 10px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .log-time {
+            color: #6c757d;
+        }
+        .log-data {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google Pay Payment</h1>
+        
+        <div class="payment-info">
+            <p>Payment Amount: <span class="amount" id="amount">$1.00</span></p>
+            <p>Job ID: <span id="job-id">DEMO123</span></p>
+        </div>
+        
+        <div id="google-pay-button"></div>
+        
+        <div id="loading">
+            Processing payment... Please wait.
+        </div>
+        
+        <div id="response"></div>
+        
+        <div id="debug-panel">
+            <h3>Debug Information</h3>
+            <div id="debug-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check if debug mode is enabled
+        const urlParams = new URLSearchParams(window.location.search);
+        const debugMode = urlParams.get('debug') === 'true';
+        
+        // Get job rate and job ID from URL parameters or use defaults
+        const jobRate = parseFloat(urlParams.get('jobrate')) || 1.00;
+        const jobId = urlParams.get('job_id') || 'DEMO123';
+        
+        // Update the displayed values
+        document.getElementById('amount').textContent = '$' + jobRate.toFixed(2);
+        document.getElementById('job-id').textContent = jobId;
+        
+        // Show debug panel if debug mode is enabled
+        if (debugMode) {
+            document.getElementById('debug-panel').style.display = 'block';
+        }
+        
+        // Debug logging function
+        function log(message, data) {
+            if (debugMode) {
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry';
+                
+                const time = new Date().toLocaleTimeString();
+                logEntry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+                
+                if (data) {
+                    const dataStr = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+                    logEntry.innerHTML += ` <span class="log-data">${dataStr}</span>`;
+                }
+                
+                const logContainer = document.getElementById('debug-log');
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            
+            console.log(message, data);
+        }
+        
+        /**
+         * Define the version of the Google Pay API referenced when creating your
+         * configuration
+         */
+        const baseRequest = {
+            apiVersion: 2,
+            apiVersionMinor: 0
+        };
+        
+        /**
+         * Card networks supported by your site and your gateway
+         */
+        const allowedCardNetworks = ["AMEX", "DISCOVER", "INTERAC", "JCB", "MASTERCARD", "VISA"];
+        
+        /**
+         * Card authentication methods supported by your site and your gateway
+         */
+        const allowedCardAuthMethods = ["PAN_ONLY", "CRYPTOGRAM_3DS"];
+        
+        /**
+         * Identify your gateway and your site's gateway merchant identifier
+         */
+        const tokenizationSpecification = {
+            type: 'PAYMENT_GATEWAY',
+            parameters: {
+                'gateway': 'stripe',
+                'stripe:version': '2020-08-27',
+                'stripe:publishableKey': 'pk_live_51QvqNUGWV02yv11osCwuRWoFsn4dJ2kohOemtSOHXdQ5WkSGyWmcr5gRdjalxdm0tT33Xk4kwB6YCEbcQdMQTiy900uGPUBybL'
+            }
+        };
+        
+        /**
+         * Describe your site's support for the CARD payment method and its required
+         * fields
+         */
+        const baseCardPaymentMethod = {
+            type: 'CARD',
+            parameters: {
+                allowedAuthMethods: allowedCardAuthMethods,
+                allowedCardNetworks: allowedCardNetworks
+            }
+        };
+        
+        /**
+         * Describe your site's support for the CARD payment method including optional
+         * fields
+         */
+        const cardPaymentMethod = Object.assign(
+            {},
+            baseCardPaymentMethod,
+            {
+                tokenizationSpecification: tokenizationSpecification
+            }
+        );
+        
+        /**
+         * An initialized google.payments.api.PaymentsClient object or null if not yet set
+         */
+        let paymentsClient = null;
+        
+        /**
+         * Configure environment for Google Pay API
+         */
+        function getGooglePaymentsClient() {
+            if (paymentsClient === null) {
+                paymentsClient = new google.payments.api.PaymentsClient({
+                    environment: 'PRODUCTION',
+                    merchantInfo: {
+                        merchantName: 'pwndu.ai',
+                        merchantId: 'BCR2DN4T77AI7IZ7'
+                    }
+                });
+            }
+            return paymentsClient;
+        }
+        
+        /**
+         * Initialize Google Pay API
+         */
+        function onGooglePayLoaded() {
+            const paymentsClient = getGooglePaymentsClient();
+            paymentsClient.isReadyToPay(getGoogleIsReadyToPayRequest())
+                .then(function(response) {
+                    if (response.result) {
+                        log('Google Pay is ready');
+                        addGooglePayButton();
+                    } else {
+                        log('Google Pay is not available');
+                    }
+                })
+                .catch(function(err) {
+                    log('Error determining if Google Pay is ready', err);
+                });
+        }
+        
+        /**
+         * Configure support for the Google Pay API
+         */
+        function getGoogleIsReadyToPayRequest() {
+            return Object.assign(
+                {},
+                baseRequest,
+                {
+                    allowedPaymentMethods: [baseCardPaymentMethod]
+                }
+            );
+        }
+        
+        /**
+         * Add a Google Pay purchase button alongside an existing checkout button
+         */
+        function addGooglePayButton() {
+            const buttonContainer = document.getElementById('google-pay-button');
+            const button = paymentsClient.createButton({
+                onClick: onGooglePayButtonClicked,
+                allowedPaymentMethods: [baseCardPaymentMethod]
+            });
+            buttonContainer.appendChild(button);
+        }
+        
+        /**
+         * Configure support for the Google Pay API
+         */
+        function getGooglePaymentDataRequest() {
+            const paymentDataRequest = Object.assign({}, baseRequest);
+            paymentDataRequest.allowedPaymentMethods = [cardPaymentMethod];
+            paymentDataRequest.transactionInfo = getTransactionInfo();
+            paymentDataRequest.merchantInfo = {
+                merchantId: 'BCR2DN4T77AI7IZ7',
+                merchantName: 'pwndu.ai'
+            };
+            
+            return paymentDataRequest;
+        }
+        
+        /**
+         * Provide Google Pay API with a payment amount, currency, and amount status
+         */
+        function getTransactionInfo() {
+            // Get the job rate or use a default amount
+            let amount = jobRate;
+            
+            // Ensure minimum transaction amount of $0.50 to meet Stripe requirements
+            if (amount < 0.50) {
+                amount = 0.50;
+                log('Amount adjusted to minimum $0.50 to meet Stripe requirements');
+            }
+            
+            return {
+                displayItems: [
+                    {
+                        label: "Total",
+                        type: "TOTAL",
+                        price: amount.toFixed(2),
+                    }
+                ],
+                countryCode: 'US',
+                currencyCode: "USD",
+                totalPriceStatus: "FINAL",
+                totalPrice: amount.toFixed(2),
+                totalPriceLabel: "Total"
+            };
+        }
+        
+        /**
+         * Handle the Google Pay button click
+         */
+        function onGooglePayButtonClicked() {
+            log('Google Pay button clicked');
+            
+            // Check if there's already a payment in progress
+            if (window.paymentInProgress) {
+                log('Payment already in progress, please wait');
+                return;
+            }
+            
+            window.paymentInProgress = true;
+            
+            const paymentDataRequest = getGooglePaymentDataRequest();
+            log('Payment data request', paymentDataRequest);
+            
+            document.getElementById('loading').style.display = 'block';
+            
+            const paymentsClient = getGooglePaymentsClient();
+            paymentsClient.loadPaymentData(paymentDataRequest)
+                .then(function(paymentData) {
+                    log('Payment data received', paymentData);
+                    processPayment(paymentData);
+                })
+                .catch(function(err) {
+                    log('Error receiving payment data', err);
+                    
+                    const responseDiv = document.getElementById('response');
+                    responseDiv.className = 'error';
+                    responseDiv.style.display = 'block';
+                    
+                    if (err.statusCode === "CANCELED") {
+                        responseDiv.textContent = "Payment canceled. Please try again or contact support for assistance.";
+                    } else {
+                        const errorMessage = err.statusMessage || err.message || JSON.stringify(err);
+                        responseDiv.textContent = "Error processing payment: " + errorMessage;
+                    }
+                    
+                    document.getElementById('loading').style.display = 'none';
+                })
+                .finally(function() {
+                    // Reset the payment in progress flag
+                    window.paymentInProgress = false;
+                });
+        }
+        
+        /**
+         * Process payment data returned by the Google Pay API
+         */
+        function processPayment(paymentData) {
+            log('Processing payment', paymentData);
+            
+            // In a real implementation, this would send the payment data to your server
+            // Since this is a static demo for Netlify, we'll simulate a server response
+            
+            // Create payment data to send to server
+            const data = {
+                paymentToken: paymentData.paymentMethodData.tokenizationData.token,
+                amount: getTransactionInfo().totalPrice,
+                jobId: jobId
+            };
+            
+            log('Payment data to send to server', data);
+            
+            // Simulate server processing time
+            setTimeout(function() {
+                // Simulate successful payment
+                const success = true;
+                
+                if (success) {
+                    log('Payment successful');
+                    
+                    const responseDiv = document.getElementById('response');
+                    responseDiv.className = 'success';
+                    responseDiv.style.display = 'block';
+                    responseDiv.textContent = "Payment successful! Thank you for your payment.";
+                    
+                    // In a real implementation, you would redirect to a success page
+                    // window.location.href = 'submit_payment.php?success=true&job_id=' + jobId;
+                } else {
+                    log('Payment failed');
+                    
+                    const responseDiv = document.getElementById('response');
+                    responseDiv.className = 'error';
+                    responseDiv.style.display = 'block';
+                    responseDiv.textContent = "Payment failed. Please try again or contact support.";
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+            }, 2000);
+        }
+    </script>
+    
+    <!-- Load the Google Pay API -->
+    <script async src="https://pay.google.com/gp/p/js/pay.js" onload="onGooglePayLoaded()"></script>
+</body>
+</html>
